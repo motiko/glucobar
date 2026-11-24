@@ -1,0 +1,3 @@
+# A JSON config file is the source of truth; the Settings window edits it
+
+GlucoBar's configuration (display toggles, thresholds, Alerts and their Action lists) lives in a human-editable JSON file rather than in UserDefaults, so it can be diffed, backed up and edited in bulk; the Settings window reads and writes that same file. JSON was chosen over TOML/YAML because Swift's Codable handles it with no dependencies and round-trips cleanly when the UI saves (comment-preserving formats would lose comments on save anyway). Secrets such as the Follower account password and messaging tokens never go in the file: it refers to Keychain entries by name.

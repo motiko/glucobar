@@ -1,0 +1,39 @@
+# Generate GlucoBar.xcodeproj with: xcodegen generate
+name: GlucoBar
+options:
+  bundleIdPrefix: dev.moti
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+packages:
+  GlucoBarCore:
+    path: GlucoBarCore
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+targets:
+  GlucoBar:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    dependencies:
+      - package: GlucoBarCore
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: GlucoBar
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSUIElement: true # menu bar only, no Dock icon
+        LSApplicationCategoryType: public.app-category.medical
+        NSHumanReadableCopyright: "MIT License"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.moti.glucobar
+        PRODUCT_NAME: GlucoBar
+        CODE_SIGN_IDENTITY: "-" # ad-hoc; switch to a Developer ID before distributing
+        CODE_SIGN_STYLE: Manual
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: NO

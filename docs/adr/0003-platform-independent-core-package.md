@@ -1,0 +1,3 @@
+# Domain logic lives in a platform-independent GlucoBarCore package
+
+The Mac app can only poll and alert while the Mac is awake, so an always-on alert relay (e.g. on a Linux server or Raspberry Pi) is planned for later. To make that relay cheap, the Glucose Source, Readings, Alert evaluation, Snooze state, remote Actions (Webhook, Telegram) and the config model live in a SwiftPM library, GlucoBarCore, that must build on Linux: no AppKit, SwiftUI, Keychain or AVFoundation imports. The Mac app adds the menu bar UI, the Settings window, sound Actions and Keychain-backed secrets on top. Keeping everything in one app target was simpler today, but would have forced an extraction or rewrite when the relay arrives.

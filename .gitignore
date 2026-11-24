@@ -1,0 +1,6 @@
+.DS_Store
+/build/
+/GlucoBar.xcodeproj/
+GlucoBarCore/.build/
+GlucoBarCore/.swiftpm/
+xcuserdata/
