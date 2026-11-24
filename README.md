@@ -7,6 +7,22 @@ LibreLinkUp follower service, and raises Alerts (sounds, Webhook, Telegram) when
 > working at any time, and it only runs while your Mac is awake. Keep your phone's CGM app as
 > your primary alarm.
 
+## Install
+
+```sh
+brew install motiko/tap/glucobar
+```
+
+Requires macOS 14+ (Apple Silicon or Intel). Open GlucoBar, choose **Settings…** in its menu, and
+sign in with the LibreLinkUp account your Libre app shares its data with.
+
+## Release (maintainers)
+
+`scripts/release.sh <version>` builds a universal app, signs it, publishes a GitHub release and
+updates the cask in `motiko/homebrew-tap`. With a Developer ID certificate it also notarizes the
+app; without one it signs with Apple Development and the cask clears the quarantine flag on
+install. See the script header for the one-time setup. `DRY_RUN=1` builds without publishing.
+
 ## Layout
 
 | Path | What |

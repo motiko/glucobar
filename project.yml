@@ -20,6 +20,9 @@ targets:
       - path: App
     dependencies:
       - package: GlucoBarCore
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
     info:
       path: App/Info.plist
       properties:
@@ -33,7 +36,5 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.moti.glucobar
         PRODUCT_NAME: GlucoBar
-        CODE_SIGN_IDENTITY: "-" # ad-hoc; switch to a Developer ID before distributing
-        CODE_SIGN_STYLE: Manual
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: NO

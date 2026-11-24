@@ -17,6 +17,8 @@ final class AppModel {
     private(set) var snapshot: SourceSnapshot?
     private(set) var status: Status = .starting
     private(set) var lastPoll: Date?
+    /// Email set and a password stored in Keychain.
+    private(set) var hasCredentials = false
     private(set) var tracker = AlertTracker()
     /// Launch with `-demo` to show fake Readings. Never on by default.
     let isDemo = CommandLine.arguments.contains("-demo")
@@ -25,6 +27,9 @@ final class AppModel {
     let secrets = KeychainSecretStore()
     private var pollTask: Task<Void, Never>?
     private var source: any GlucoseSource = DemoGlucoseSource()
+    private var configWatcher: ConfigWatcher?
+    /// Set while config.json on disk can't be read; the last good config stays in use.
+    private(set) var configError: String?
     private var consecutiveFailures = 0
     private let log = Logger(subsystem: "dev.moti.glucobar", category: "app")
 
@@ -38,6 +43,8 @@ final class AppModel {
             config = GlucoBarConfig()
             status = .error("Config unreadable: \(error.localizedDescription)")
         }
+        hasCredentials = config.libreLinkUp.email != nil
+            && (try? secrets.secret(named: config.libreLinkUp.passwordSecret)) != nil
         SoundPerformer.requestAuthorization()
         LaunchAtLogin.apply(config.launchAtLogin)
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -45,6 +52,7 @@ final class AppModel {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.didWake() }
         }
+        configWatcher = ConfigWatcher(url: configStore.url) { [weak self] in self?.reloadConfig() }
         restartPolling()
     }
 
@@ -128,11 +136,19 @@ final class AppModel {
     // MARK: Alerts
 
     private func evaluateAlerts(now: Date) {
+        // Nothing to watch while signed out: no Signal Loss for an intentionally empty Source.
+        guard hasCredentials || isDemo else {
+            tracker = AlertTracker()
+            return
+        }
         let conditions = AlertEvaluator.evaluate(
             latest: latest, now: now, thresholds: config.thresholds,
             staleAfter: config.display.staleAfter, alerts: config.alerts)
         for kind in tracker.update(conditions, now: now, settings: config.alerts) {
             let event = AlertEvent(kind: kind, reading: latest, delta: delta, unit: unit, firedAt: now)
+            let value = latest.map { $0.glucose.formatted(in: unit) } ?? "-"
+            let actions = (config.alerts[kind]?.actions ?? []).joined(separator: ", ")
+            log.notice("Alert \(kind.rawValue, privacy: .public) fired at \(value, privacy: .public) → \(actions, privacy: .public)")
             for name in config.alerts[kind]?.actions ?? [] {
                 guard let action = config.actions[name] else {
                     log.error("Alert \(kind.rawValue) refers to unknown action \(name)")
@@ -200,12 +216,40 @@ final class AppModel {
         }
     }
 
+    /// Applies config.json from disk. Called automatically when the file changes.
+    /// No-op when the content equals what's in memory (e.g. our own saves).
     func reloadConfig() {
+        let new: GlucoBarConfig
         do {
-            config = try configStore.loadOrCreate()
-            restartPolling()
+            new = try configStore.loadOrCreate()
         } catch {
-            status = .error("Config unreadable: \(error.localizedDescription)")
+            configError = "config.json not applied: \(Self.describe(error))"
+            log.error("\(self.configError ?? "", privacy: .public)")
+            return
+        }
+        configError = nil
+        guard new != config else { return }
+
+        let needsRestart = new.libreLinkUp != config.libreLinkUp || new.polling != config.polling
+        if new.launchAtLogin != config.launchAtLogin { LaunchAtLogin.apply(new.launchAtLogin) }
+        config = new
+        hasCredentials = config.libreLinkUp.email != nil
+            && (try? secrets.secret(named: config.libreLinkUp.passwordSecret)) != nil
+        log.notice("Reloaded config.json\(needsRestart ? " (restarting polling)" : "", privacy: .public)")
+        if needsRestart { restartPolling() }
+    }
+
+    private static func describe(_ error: Error) -> String {
+        switch error {
+        case DecodingError.dataCorrupted(let c):
+            let underlying = (c.underlyingError as NSError?)?.userInfo[NSDebugDescriptionErrorKey] as? String
+            return underlying ?? c.debugDescription
+        case DecodingError.typeMismatch(_, let c), DecodingError.valueNotFound(_, let c):
+            return "\(c.codingPath.map(\.stringValue).joined(separator: ".")): \(c.debugDescription)"
+        case DecodingError.keyNotFound(let key, let c):
+            return "\((c.codingPath + [key]).map(\.stringValue).joined(separator: ".")) is missing"
+        default:
+            return error.localizedDescription
         }
     }
 
@@ -221,6 +265,19 @@ final class AppModel {
             status = .error("Keychain: \(error.localizedDescription)")
             return
         }
+        hasCredentials = true
+        status = .starting
+        snapshot = nil
+        restartPolling()
+    }
+
+    /// Forgets the password and token; keeps the email to make signing back in easier.
+    func signOut() {
+        try? secrets.setSecret(nil, named: config.libreLinkUp.passwordSecret)
+        try? secrets.setSecret(nil, named: config.libreLinkUp.tokenSecret)
+        hasCredentials = false
+        snapshot = nil
+        tracker = AlertTracker()
         restartPolling()
     }
 }

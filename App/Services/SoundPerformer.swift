@@ -20,7 +20,7 @@ struct SoundPerformer: ActionPerformer {
             // Banners respect Focus; the sound is played directly so Focus can't silence it.
             // TODO: also override system mute / low volume for the Urgent sound.
             content.interruptionLevel = .timeSensitive
-            await MainActor.run { _ = NSSound(named: soundName)?.play() }
+            await MainActor.run { playDirectly() }
         } else {
             content.sound = .default
         }
@@ -29,8 +29,10 @@ struct SoundPerformer: ActionPerformer {
         try await UNUserNotificationCenter.current().add(request)
     }
 
-    private var soundName: NSSound.Name {
-        // TODO: ship distinct bundled sounds.
-        config.sound == .urgent ? "Sosumi" : "Glass"
+    @MainActor private func playDirectly() {
+        switch config.sound {
+        case .urgent: AlarmTone.play()
+        case .notification: _ = NSSound(named: "Glass")?.play()
+        }
     }
 }

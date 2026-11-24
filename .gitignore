@@ -4,3 +4,5 @@
 GlucoBarCore/.build/
 GlucoBarCore/.swiftpm/
 xcuserdata/
+Config/Local.xcconfig
+/dist/

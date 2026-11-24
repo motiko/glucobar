@@ -46,6 +46,10 @@ struct DropdownView: View {
                 Text("No readings yet").font(.headline)
             }
             Text(statusText).font(.caption).foregroundStyle(.secondary)
+            if let error = model.configError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.red)
+            }
         }
     }
 

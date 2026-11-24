@@ -1,0 +1,10 @@
+// Code signing. Default: ad-hoc, which needs no certificate but gives every build a new
+// identity, so macOS asks for Keychain access again after each rebuild.
+//
+// To sign with your own certificate (Keychain "Always Allow" then survives rebuilds),
+// create Config/Local.xcconfig (gitignored) containing:
+//   CODE_SIGN_IDENTITY = Apple Development
+//   DEVELOPMENT_TEAM = <your team id>
+CODE_SIGN_IDENTITY = -
+CODE_SIGN_STYLE = Manual
+#include? "Local.xcconfig"
