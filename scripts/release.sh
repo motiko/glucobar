@@ -96,14 +96,15 @@ if [[ $DRY_RUN == 1 ]]; then
 fi
 
 write_cask() {
-  local postflight=""
+  local dequarantine=""
   if [[ $NOTARIZE == 0 ]]; then
-    postflight=$(cat <<'RUBY'
+    dequarantine=$(cat <<'RUBY'
 
-  # Not notarized: clear the quarantine flag so Gatekeeper doesn't block the app after
-  # every install/upgrade. Removed once releases are signed with Developer ID.
-  postflight do
-    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/GlucoBar.app"]
+  # Not notarized: clear the quarantine flag (while the app is still staged) so Gatekeeper
+  # doesn't block it after every install/upgrade. Removed once releases use Developer ID.
+  preflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "GlucoBar.app"],
+                          chdir: ".", writable_paths: ["GlucoBar.app"]
   end
 RUBY
 )
@@ -126,7 +127,7 @@ cask "glucobar" do
   depends_on macos: :sonoma
 
   app "GlucoBar.app"
-$postflight
+$dequarantine
 
   uninstall quit: "dev.moti.glucobar"
 
