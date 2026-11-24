@@ -148,7 +148,7 @@ final class AppModel {
             let event = AlertEvent(kind: kind, reading: latest, delta: delta, unit: unit, firedAt: now)
             let value = latest.map { $0.glucose.formatted(in: unit) } ?? "-"
             let actions = (config.alerts[kind]?.actions ?? []).joined(separator: ", ")
-            log.notice("Alert \(kind.rawValue, privacy: .public) fired at \(value, privacy: .public) → \(actions, privacy: .public)")
+            log.notice("Alert \(kind.rawValue, privacy: .public) fired at \(value, privacy: .private) → \(actions, privacy: .public)")
             for name in config.alerts[kind]?.actions ?? [] {
                 guard let action = config.actions[name] else {
                     log.error("Alert \(kind.rawValue) refers to unknown action \(name)")
