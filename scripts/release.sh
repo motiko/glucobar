@@ -42,11 +42,18 @@ if [[ -z $IDENTITY ]]; then
   [[ -n $IDENTITY ]] || die "no 'Developer ID Application' or 'Apple Development' certificate in the keychain"
   echo "note: no Developer ID certificate; signing with Apple Development, NOT notarizing."
 fi
-TEAM=$(sed -E 's/.*\(([A-Z0-9]{10})\)$/\1/' <<<"$IDENTITY")
+# The team ID is the certificate's OU (the bracketed ID in an Apple Development name is personal).
+TEAM=$(security find-certificate -c "$IDENTITY" -p | openssl x509 -noout -subject -nameopt multiline \
+  | awk -F' = ' '/organizationalUnitName/ {print $2; exit}')
+[[ $TEAM =~ ^[A-Z0-9]{10}$ ]] || die "could not read the team ID from '$IDENTITY'"
 if [[ $NOTARIZE == 1 ]]; then
   xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
     || die "notary profile '$NOTARY_PROFILE' missing (see setup above)"
 fi
+
+# Undo the version bump unless the release gets committed.
+COMMITTED=0
+trap '[[ $COMMITTED == 1 ]] || git checkout -q -- project.yml App/Info.plist' EXIT
 
 step "Version $VERSION"
 BUILD_NUMBER=$(( $(git rev-list --count HEAD) + 1 ))
@@ -84,7 +91,6 @@ SHA256=$(shasum -a 256 "$ZIP" | cut -d' ' -f1)
 echo "$ZIP  sha256 $SHA256"
 
 if [[ $DRY_RUN == 1 ]]; then
-  git checkout -- project.yml
   echo; echo "DRY_RUN: built $ZIP (notarized: $NOTARIZE); nothing committed or published."
   exit 0
 fi
@@ -135,7 +141,8 @@ RUBY
 }
 
 step "Commit, tag, GitHub release"
-git commit -q -m "Release $VERSION" project.yml
+git commit -q -m "Release $VERSION" project.yml App/Info.plist
+COMMITTED=1
 git tag -a "v$VERSION" -m "GlucoBar $VERSION"
 git push -q origin HEAD "v$VERSION"
 gh release create "v$VERSION" "$ZIP" --repo "$REPO" --title "GlucoBar $VERSION" \
