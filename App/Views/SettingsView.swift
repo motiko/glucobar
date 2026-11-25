@@ -11,9 +11,10 @@ struct SettingsView: View {
             AccountTab(model: model).tabItem { Label("Account", systemImage: "person.crop.circle") }
             DisplayTab(model: model).tabItem { Label("Display", systemImage: "menubar.rectangle") }
             AlertsTab(model: model).tabItem { Label("Alerts", systemImage: "bell") }
+            ActionsTab(model: model).tabItem { Label("Actions", systemImage: "paperplane") }
             GeneralTab(model: model).tabItem { Label("General", systemImage: "gearshape") }
         }
-        .frame(width: 500, height: 520)
+        .frame(width: 520, height: 560)
         .onChange(of: model.config) { model.saveConfig() }
         // Back to menu-bar-only (no Dock icon) once Settings closes.
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
@@ -193,17 +194,6 @@ private struct AlertsTab: View {
                     AlertSection(model: model, kind: kind, settings: settings)
                 }
             }
-            Section {
-                // TODO: edit each Alert's Action list; Webhook/Telegram Action editors;
-                // Telegram chat-id discovery via getUpdates.
-                LabeledContent("Sounds and messages") {
-                    Button("Edit in Config File…") {
-                        NSWorkspace.shared.activateFileViewerSelecting([model.configStore.url])
-                    }
-                }
-            } footer: {
-                Text("Which sound or message each alert triggers is set in the config file for now.")
-            }
         }
         .formStyle(.grouped)
     }
@@ -234,11 +224,35 @@ private struct AlertSection: View {
                 }
                 MinutesPicker(title: "Repeat every", minutes: $settings.repeatMinutes,
                               choices: [1, 5, 10, 15, 20, 30, 45, 60, 90, 120])
+                LabeledContent("Then") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(model.config.actions.keys.sorted(), id: \.self) { name in
+                            Toggle(model.config.actions[name]?.label(name: name) ?? name, isOn: uses(name))
+                                .toggleStyle(.checkbox)
+                        }
+                    }
+                }
             }
             .disabled(!settings.enabled)
+            TestSendRow(title: "Send test \(kind.displayName)", disabled: settings.actions.isEmpty) {
+                await model.sendTest(kind)
+            }
         } header: {
             Text(kind.displayName)
+        } footer: {
+            if kind == .signalLoss {
+                Text("Add phone push (ntfy) or a webhook in the Actions tab.")
+            }
         }
+    }
+
+    private func uses(_ name: String) -> Binding<Bool> {
+        Binding(
+            get: { settings.actions.contains(name) },
+            set: { on in
+                settings.actions.removeAll { $0 == name }
+                if on { settings.actions.append(name) }
+            })
     }
 
     private var gate: (title: String, explanation: String)? {
@@ -299,6 +313,209 @@ private struct MinutesPicker: View {
     }
 }
 
+/// A "Send test" button that shows, per Action, whether it went out.
+private struct TestSendRow: View {
+    let title: String
+    var disabled = false
+    let send: () async -> [(action: String, error: String?)]
+    @State private var sending = false
+    @State private var results: [(action: String, error: String?)]?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                if let results, !sending {
+                    let failed = results.filter { $0.error != nil }.count
+                    Label(failed == 0 ? "Sent" : "\(failed) of \(results.count) failed",
+                          systemImage: failed == 0 ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                        .foregroundStyle(failed == 0 ? .green : .red)
+                        .font(.callout)
+                }
+                Spacer()
+                if sending { ProgressView().controlSize(.small) }
+                Button(title) {
+                    sending = true
+                    Task {
+                        results = await send()
+                        sending = false
+                    }
+                }
+                .disabled(disabled || sending)
+            }
+            ForEach(results?.filter { $0.error != nil } ?? [], id: \.action) { r in
+                Text("\(r.action): \(r.error ?? "")").font(.caption).foregroundStyle(.red).textSelection(.enabled)
+            }
+        }
+    }
+}
+
+// MARK: - Actions
+
+extension ActionConfig {
+    /// How an Action is shown in Settings, e.g. "Phone push (ntfy: glucobar-x7…)".
+    func label(name: String) -> String {
+        switch self {
+        case .sound(let c): c.sound == .urgent ? "Play Urgent sound" : "Play Notification sound"
+        case .ntfy(let c): "Phone push (ntfy: \(c.topic.isEmpty ? "no topic" : c.topic))"
+        case .webhook(let c): "Webhook (\(URL(string: c.url)?.host() ?? "no URL"))"
+        case .telegram: "Telegram \(name) (not supported yet)"
+        }
+    }
+}
+
+private struct ActionsTab: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        Form {
+            ForEach(model.config.actions.keys.sorted(), id: \.self) { name in
+                ActionSection(model: model, name: name)
+            }
+            Section {
+                HStack {
+                    Spacer()
+                    Menu("Add Action") {
+                        Button("Phone push (ntfy)") {
+                            add("phone", .ntfy(NtfyActionConfig(topic: Self.randomTopic())))
+                        }
+                        Button("Webhook") { add("webhook", .webhook(WebhookActionConfig(url: ""))) }
+                    }
+                    .fixedSize()
+                }
+            } footer: {
+                Text("Choose which Actions each alert uses in the Alerts tab.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func add(_ base: String, _ action: ActionConfig) {
+        var name = base
+        var n = 2
+        while model.config.actions[name] != nil { name = "\(base)\(n)"; n += 1 }
+        model.config.actions[name] = action
+    }
+
+    static func randomTopic() -> String {
+        let chars = Array("abcdefghijkmnpqrstuvwxyz23456789")
+        return "glucobar-" + String((0..<16).map { _ in chars.randomElement()! })
+    }
+}
+
+private struct ActionSection: View {
+    @Bindable var model: AppModel
+    let name: String
+
+    var body: some View {
+        Section {
+            switch model.config.actions[name] {
+            case .sound(let c):
+                Toggle(isOn: Binding(
+                    get: { c.bypassFocusAndMute },
+                    set: { var v = c; v.bypassFocusAndMute = $0; model.config.actions[name] = .sound(v) })) {
+                    Text("Play even during Focus")
+                    Text("Plays the sound directly, so Do Not Disturb can't silence it.")
+                }
+            case .ntfy(let c):
+                ntfyFields(c)
+            case .webhook(let c):
+                webhookFields(c)
+            case .telegram:
+                Text("Telegram isn't supported yet.").foregroundStyle(.secondary)
+            case nil:
+                EmptyView()
+            }
+            HStack {
+                if case .sound = model.config.actions[name] {} else {
+                    Button("Delete", role: .destructive, action: delete)
+                }
+                TestSendRow(title: "Send test") {
+                    [(name, await model.sendTest(action: name))]
+                }
+            }
+        } header: {
+            Text(model.config.actions[name]?.label(name: name) ?? name)
+        }
+    }
+
+    @ViewBuilder private func ntfyFields(_ c: NtfyActionConfig) -> some View {
+        let set: (NtfyActionConfig) -> Void = { model.config.actions[name] = .ntfy($0) }
+        TextField("Topic", text: Binding(get: { c.topic }, set: { var v = c; v.topic = $0.trimmingCharacters(in: .whitespaces); set(v) }))
+        TextField("Server", text: Binding(get: { c.server }, set: { var v = c; v.server = $0; set(v) }))
+        SecretRow(model: model, title: "Access token", prompt: "optional, tk_…",
+                  secretName: Binding(get: { c.tokenSecret }, set: { var v = c; v.tokenSecret = $0; set(v) }),
+                  defaultName: "ntfy.\(name).token")
+        if c.server == NtfyActionConfig.defaultServer, !c.topic.isEmpty {
+            Text("Subscribe to **\(c.topic)** in the ntfy app. Anyone who knows the topic name can read these alerts, so keep it random.")
+                .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+        }
+    }
+
+    @ViewBuilder private func webhookFields(_ c: WebhookActionConfig) -> some View {
+        let set: (WebhookActionConfig) -> Void = { model.config.actions[name] = .webhook($0) }
+        TextField("URL", text: Binding(get: { c.url }, set: { var v = c; v.url = $0.trimmingCharacters(in: .whitespaces); set(v) }),
+                  prompt: Text("https://example.com/hook"))
+        SecretRow(model: model, title: "Authorization header", prompt: "optional, e.g. Bearer …",
+                  secretName: Binding(get: { c.authorizationSecret }, set: { var v = c; v.authorizationSecret = $0; set(v) }),
+                  defaultName: "webhook.\(name).authorization")
+        Text("POSTs JSON: alert, state, value, value_mgdl, unit, trend, delta, timestamp.")
+            .font(.caption).foregroundStyle(.secondary)
+    }
+
+    private func delete() {
+        switch model.config.actions[name] {
+        case .ntfy(let c): c.tokenSecret.map { model.setSecret(nil, named: $0) }
+        case .webhook(let c): c.authorizationSecret.map { model.setSecret(nil, named: $0) }
+        default: break
+        }
+        for kind in model.config.alerts.keys { model.config.alerts[kind]?.actions.removeAll { $0 == name } }
+        model.config.actions[name] = nil
+    }
+}
+
+/// A secret kept in the Keychain; the config only stores its name.
+private struct SecretRow: View {
+    @Bindable var model: AppModel
+    let title: String
+    let prompt: String
+    @Binding var secretName: String?
+    let defaultName: String
+    @State private var value = ""
+    @State private var stored = false
+
+    var body: some View {
+        LabeledContent(title) {
+            if stored {
+                HStack {
+                    Text("Saved in Keychain").foregroundStyle(.secondary)
+                    Button("Remove") {
+                        if let secretName { model.setSecret(nil, named: secretName) }
+                        secretName = nil
+                        stored = false
+                    }
+                }
+            } else {
+                HStack {
+                    SecureField(title, text: $value, prompt: Text(prompt))
+                        .labelsHidden()
+                        .onSubmit(save)
+                    Button("Save", action: save).disabled(value.isEmpty)
+                }
+            }
+        }
+        .onAppear { stored = secretName.map(model.hasSecret) ?? false }
+    }
+
+    private func save() {
+        guard !value.isEmpty else { return }
+        let name = secretName ?? defaultName
+        model.setSecret(value, named: name)
+        secretName = name
+        value = ""
+        stored = model.hasSecret(name)
+    }
+}
+
 // MARK: - General
 
 private struct GeneralTab: View {
@@ -314,6 +531,11 @@ private struct GeneralTab: View {
                         Text(s < 120 ? "\(s) seconds" : "\(s / 60) minutes").tag(s)
                     }
                 }
+            }
+            Section {
+                Toggle("Debug logging", isOn: $model.config.debugLogging)
+            } footer: {
+                Text("Writes glucose values to the macOS system log in clear text. Off: they're redacted (“<private>”).")
             }
             Section {
                 LabeledContent("Config file") {

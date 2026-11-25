@@ -12,7 +12,7 @@ struct SoundPerformer: ActionPerformer {
 
     func perform(_ event: AlertEvent) async throws {
         let content = UNMutableNotificationContent()
-        content.title = event.kind.displayName
+        content.title = AlertMessage.title(for: event)
         if let r = event.reading {
             content.body = "\(r.glucose.formatted(in: event.unit)) \(event.unit.rawValue) \(r.trend?.arrow ?? "")"
         }

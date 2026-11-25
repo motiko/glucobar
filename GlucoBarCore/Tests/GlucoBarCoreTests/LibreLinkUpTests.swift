@@ -8,44 +8,6 @@ import Testing
 private let t0 = Date(timeIntervalSince1970: 1_800_000_000) // 1/15/2027 8:00:00 AM UTC
 private let future = Int(t0.timeIntervalSince1970) + 86_400
 
-/// Answers requests by "METHOD /path" and records what was sent.
-private final class FakeTransport: HTTPTransport, @unchecked Sendable {
-    typealias Reply = (status: Int, body: String, headers: [String: String])
-    private let lock = NSLock()
-    private var routes: [String: [Reply]] = [:]
-    private(set) var requests: [URLRequest] = []
-
-    /// Queue replies for a route; the last one repeats.
-    func on(_ route: String, _ replies: Reply...) {
-        lock.withLock { routes[route, default: []].append(contentsOf: replies) }
-    }
-
-    var sent: [String] { lock.withLock { requests.map(Self.key) } }
-
-    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let reply: Reply = lock.withLock {
-            requests.append(request)
-            let key = Self.key(request)
-            guard var queue = routes[key], !queue.isEmpty else { return (404, "{}", [:]) }
-            let r = queue.count > 1 ? queue.removeFirst() : queue[0]
-            routes[key] = queue
-            return r
-        }
-        let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: nil,
-                                       headerFields: reply.headers)!
-        return (Data(reply.body.utf8), response)
-    }
-
-    static func key(_ r: URLRequest) -> String { "\(r.httpMethod ?? "GET") \(r.url!.host!)\(r.url!.path)" }
-}
-
-private final class MemorySecrets: SecretStore, @unchecked Sendable {
-    private let lock = NSLock()
-    private var values: [String: String] = [:]
-    func secret(named name: String) throws -> String? { lock.withLock { values[name] } }
-    func setSecret(_ value: String?, named name: String) throws { lock.withLock { values[name] = value } }
-}
-
 private func ok(_ body: String) -> FakeTransport.Reply { (200, body, [:]) }
 
 private let loginOK = ok(#"{"status":0,"data":{"user":{"id":"user-123"},"authTicket":{"token":"tok","expires":\#(future),"duration":15552000000}}}"#)

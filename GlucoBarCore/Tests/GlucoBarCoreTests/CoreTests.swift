@@ -175,6 +175,7 @@ private func reading(_ mg: Double, minutesAgo: Double = 0, trend: Trend? = .flat
         #expect(config.display.showDelta)
         #expect(config.display.staleAfterMinutes == 15)
         #expect(config.polling.interval == 60) // clamped
+        #expect(!config.debugLogging)
         #expect(config.alerts == AlertSettings.defaults)
     }
 
@@ -198,6 +199,64 @@ private func reading(_ mg: Double, minutesAgo: Double = 0, trend: Trend? = .flat
                                delta: Glucose(mgPerDL: -8), unit: .mgPerDL, firedAt: t0)
         let text = TelegramMessage.text(for: event, timeZone: TimeZone(identifier: "UTC")!)
         #expect(text == "🚨 Urgent Low: 52 mg/dL ↘ (−8) at 08:00")
+    }
+
+    @Test func ntfyPublishesJSONToServerRoot() async throws {
+        let t = FakeTransport()
+        t.on("POST ntfy.example.com", (200, "{}", [:]))
+        let secrets = MemorySecrets()
+        try secrets.setSecret("tk_abc", named: "ntfy.token")
+        let config = NtfyActionConfig(server: "https://ntfy.example.com", topic: "gb-x7", tokenSecret: "ntfy.token")
+        let event = AlertEvent(kind: .urgentLow, reading: reading(52, trend: .falling),
+                               delta: Glucose(mgPerDL: -8), unit: .mgPerDL, firedAt: t0)
+
+        try await NtfyPerformer(config: config, secrets: secrets, transport: t).perform(event)
+
+        let request = try #require(t.requests.first)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer tk_abc")
+        let sent = try JSONDecoder().decode(NtfyMessage.self, from: try #require(request.httpBody))
+        #expect(sent.topic == "gb-x7")
+        #expect(sent.title == "Urgent Low")
+        #expect(sent.message.hasPrefix("52 mg/dL ↘ (−8) at "))
+        #expect(sent.priority == 5)
+    }
+
+    @Test func testSendsAreLabelled() {
+        let event = AlertEvent(kind: .high, reading: reading(250), delta: nil, unit: .mgPerDL, firedAt: t0, isTest: true)
+        #expect(NtfyMessage(topic: "t", event: event).title == "High (test)")
+        #expect(WebhookPayload(event).state == "test")
+        #expect(WebhookPayload(AlertEvent(kind: .high, reading: nil, delta: nil, unit: .mgPerDL, firedAt: t0)).state == "firing")
+    }
+
+    @Test func ntfyErrorsSurface() async throws {
+        let t = FakeTransport()
+        t.on("POST ntfy.sh", (429, #"{"error":"limit reached"}"#, [:]))
+        let event = AlertEvent(kind: .signalLoss, reading: nil, delta: nil, unit: .mgPerDL, firedAt: t0)
+        let ntfy = NtfyPerformer(config: NtfyActionConfig(topic: "t"), secrets: MemorySecrets(), transport: t)
+        await #expect(throws: ActionError.httpStatus(429, #"{"error":"limit reached"}"#)) { try await ntfy.perform(event) }
+        #expect(t.requests.first?.value(forHTTPHeaderField: "Authorization") == nil)
+
+        let missing = NtfyPerformer(config: NtfyActionConfig(topic: "t", tokenSecret: "nope"), secrets: MemorySecrets(), transport: t)
+        await #expect(throws: ActionError.missingSecret("nope")) { try await missing.perform(event) }
+    }
+
+    @Test func ntfyConfigDefaultsServer() throws {
+        let json = #"{"actions": {"phone": {"type": "ntfy", "topic": "gb-x7"}}}"#
+        let config = try JSONDecoder().decode(GlucoBarConfig.self, from: Data(json.utf8))
+        #expect(config.actions["phone"] == .ntfy(NtfyActionConfig(server: "https://ntfy.sh", topic: "gb-x7")))
+    }
+
+    @Test func webhookPostsFixedPayload() async throws {
+        let t = FakeTransport()
+        t.on("POST hooks.example.com/glucose", (204, "", [:]))
+        let event = AlertEvent(kind: .high, reading: reading(250, trend: .risingFast),
+                               delta: Glucose(mgPerDL: 12), unit: .mgPerDL, firedAt: t0)
+        try await WebhookPerformer(config: WebhookActionConfig(url: "https://hooks.example.com/glucose"),
+                                   secrets: MemorySecrets(), transport: t).perform(event)
+        let body = try JSONSerialization.jsonObject(with: try #require(t.requests.first?.httpBody)) as? [String: Any]
+        #expect(body?["alert"] as? String == "high")
+        #expect(body?["value_mgdl"] as? Double == 250)
+        #expect(body?["timestamp"] as? String == "2027-01-15T08:00:00Z")
     }
 
     @Test func lluTrendMapping() {

@@ -58,6 +58,10 @@ _Avoid_: mute, silence, dismiss
 An Action that sends the Alert to a user-configured HTTP endpoint.
 _Avoid_: API call, callback
 
+**ntfy Action**:
+An Action that pushes the Alert to every phone or computer subscribed to the user's ntfy topic. Urgent Low is sent at the highest priority.
+_Avoid_: push, phone alert
+
 **Telegram Action**:
 An Action that sends an Alert message to a Telegram chat via the user's own bot.
 _Avoid_: messenger, chat notification

@@ -49,3 +49,29 @@ Run with the `-demo` launch argument to see fake Readings without signing in.
 `~/.config/glucobar/config.json` (or `$XDG_CONFIG_HOME/glucobar/config.json`) is the source of
 truth; the Settings window edits the same file. Secrets (LibreLinkUp password, bot tokens) live in
 the Keychain and the file refers to them by name.
+
+Glucose values are redacted in the system log unless `"debugLogging": true` (Settings → General →
+Debug logging). Watch the log with
+`/usr/bin/log stream --level info --predicate 'subsystem == "dev.moti.glucobar"'`.
+
+### Alerts on your phone (ntfy)
+
+[ntfy](https://ntfy.sh) pushes Alerts to the ntfy app on your phone. Pick a long, random topic
+name: on the public server anyone who knows it can read your Alerts. Subscribe to it in the ntfy
+app. In Settings → Actions choose **Add Action → Phone push (ntfy)** (it suggests a random topic),
+tick it under the Alerts that should use it, and press **Send test**. Or in the config file:
+
+```json
+"actions": {
+  "phone": { "type": "ntfy", "topic": "glucobar-<something-random>" }
+},
+"alerts": {
+  "urgentLow": { "actions": ["urgentSound", "phone"], ... }
+}
+```
+
+Urgent Low is sent at priority 5 (can break through Do Not Disturb), Low/High at 4, Signal Loss at
+3. For a self-hosted server or a protected topic add `"server": "https://ntfy.example.com"` and
+`"tokenSecret": "ntfy.token"`, and store the access token in the Keychain:
+`security add-generic-password -s dev.moti.glucobar -a ntfy.token -w` (macOS asks once whether
+GlucoBar may read it; choose Always Allow).

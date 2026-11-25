@@ -12,6 +12,8 @@ public struct GlucoBarConfig: Codable, Sendable, Equatable {
     public var actions: [String: ActionConfig] = ActionConfig.defaults
     public var libreLinkUp = LibreLinkUpSettings()
     public var launchAtLogin = true
+    /// Write glucose values to the system log in clear text (otherwise they're redacted).
+    public var debugLogging = false
 
     public init() {}
 
@@ -31,6 +33,7 @@ public struct GlucoBarConfig: Codable, Sendable, Equatable {
         actions = try c.decodeIfPresent([String: ActionConfig].self, forKey: .actions) ?? d.actions
         libreLinkUp = try c.decodeIfPresent(LibreLinkUpSettings.self, forKey: .libreLinkUp) ?? d.libreLinkUp
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? d.launchAtLogin
+        debugLogging = try c.decodeIfPresent(Bool.self, forKey: .debugLogging) ?? d.debugLogging
     }
 
     /// The unit to display: the override if set, else the Patient's own, else mg/dL.

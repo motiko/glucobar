@@ -78,7 +78,19 @@ final class AppModel {
         var delay = interval
         do {
             let snap = try await source.fetch()
+            let isNew = snap.latest?.timestamp != snapshot?.latest?.timestamp
             snapshot = snap
+            if isNew, let r = snap.latest {
+                let trend = r.trend?.arrow ?? "?"
+                let d = delta.map { Delta.formatted($0, in: unit) } ?? "-"
+                let values = "\(r.glucose.formatted(in: unit)) \(trend) Δ\(d)"
+                // os.Logger needs privacy to be a compile-time choice, hence the branch.
+                if config.debugLogging {
+                    log.info("Reading \(values, privacy: .public) at \(r.timestamp, privacy: .public)")
+                } else {
+                    log.info("Reading \(values, privacy: .private) at \(r.timestamp, privacy: .public)")
+                }
+            }
             status = .ok
             consecutiveFailures = 0
             if !isDemo { // demo values must never become the Patient's thresholds
@@ -148,19 +160,59 @@ final class AppModel {
             let event = AlertEvent(kind: kind, reading: latest, delta: delta, unit: unit, firedAt: now)
             let value = latest.map { $0.glucose.formatted(in: unit) } ?? "-"
             let actions = (config.alerts[kind]?.actions ?? []).joined(separator: ", ")
-            log.notice("Alert \(kind.rawValue, privacy: .public) fired at \(value, privacy: .private) → \(actions, privacy: .public)")
+            if config.debugLogging {
+                log.notice("Alert \(kind.rawValue, privacy: .public) fired at \(value, privacy: .public) → \(actions, privacy: .public)")
+            } else {
+                log.notice("Alert \(kind.rawValue, privacy: .public) fired at \(value, privacy: .private) → \(actions, privacy: .public)")
+            }
             for name in config.alerts[kind]?.actions ?? [] {
-                guard let action = config.actions[name] else {
-                    log.error("Alert \(kind.rawValue) refers to unknown action \(name)")
-                    continue
-                }
-                let performer = performer(for: action)
                 Task {
-                    do { try await performer.perform(event) } catch {
-                        self.log.error("Action \(name) failed: \(String(describing: error))")
+                    do { try await run(action: name, event) } catch {
+                        self.log.error("Action \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                     }
                 }
             }
+        }
+    }
+
+    private func run(action name: String, _ event: AlertEvent) async throws {
+        guard let action = config.actions[name] else { throw ActionTestError.unknownAction(name) }
+        try await performer(for: action).perform(event)
+    }
+
+    /// A made-up event for a test send: the latest Reading, marked as a test.
+    private func testEvent(_ kind: AlertKind) -> AlertEvent {
+        AlertEvent(kind: kind, reading: latest, delta: delta, unit: unit, firedAt: Date(), isTest: true)
+    }
+
+    /// Runs every Action of `kind` once, as a test. Returns one result per Action, in order.
+    func sendTest(_ kind: AlertKind) async -> [(action: String, error: String?)] {
+        let event = testEvent(kind)
+        var results: [(String, String?)] = []
+        for name in config.alerts[kind]?.actions ?? [] {
+            results.append((name, await testError(action: name, event)))
+        }
+        return results
+    }
+
+    /// Runs one Action once as a test (as an Urgent Low). nil = sent.
+    func sendTest(action name: String) async -> String? {
+        await testError(action: name, testEvent(.urgentLow))
+    }
+
+    private func testError(action name: String, _ event: AlertEvent) async -> String? {
+        do { try await run(action: name, event); return nil } catch { return String(describing: error) }
+    }
+
+    // MARK: Action secrets (Keychain)
+
+    func hasSecret(_ name: String) -> Bool {
+        ((try? secrets.secret(named: name)) ?? nil)?.isEmpty == false
+    }
+
+    func setSecret(_ value: String?, named name: String) {
+        do { try secrets.setSecret(value?.isEmpty == true ? nil : value, named: name) } catch {
+            log.error("Keychain write for \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -169,6 +221,7 @@ final class AppModel {
         case .sound(let c): SoundPerformer(config: c)
         case .webhook(let c): WebhookPerformer(config: c, secrets: secrets)
         case .telegram(let c): TelegramPerformer(config: c, secrets: secrets)
+        case .ntfy(let c): NtfyPerformer(config: c, secrets: secrets)
         }
     }
 
@@ -279,5 +332,12 @@ final class AppModel {
         snapshot = nil
         tracker = AlertTracker()
         restartPolling()
+    }
+}
+
+enum ActionTestError: Error, CustomStringConvertible {
+    case unknownAction(String)
+    var description: String {
+        switch self { case .unknownAction(let name): "no Action named \(name)" }
     }
 }
