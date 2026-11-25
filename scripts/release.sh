@@ -80,7 +80,8 @@ rm -rf "$DERIVED"
 xcodebuild -project GlucoBar.xcodeproj -scheme GlucoBar -configuration Release \
   -derivedDataPath "$DERIVED" ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$IDENTITY" DEVELOPMENT_TEAM="$TEAM" \
-  ENABLE_HARDENED_RUNTIME=YES OTHER_CODE_SIGN_FLAGS="--timestamp" "${PROFILE_SETTINGS[@]}" \
+  ENABLE_HARDENED_RUNTIME=YES OTHER_CODE_SIGN_FLAGS="--timestamp" CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+  "${PROFILE_SETTINGS[@]}" \
   build -quiet
 APP="$DERIVED/Build/Products/Release/GlucoBar.app"
 codesign --verify --strict --deep "$APP"
