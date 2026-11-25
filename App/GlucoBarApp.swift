@@ -8,7 +8,11 @@ struct GlucoBarApp: App {
         MenuBarExtra {
             DropdownView(model: model)
         } label: {
-            MenuBarLabel(text: model.menuBarText, color: model.menuBarColor)
+            if model.latest == nil {
+                Image(nsImage: MenuBarLabel.gauge).accessibilityLabel("GlucoBar: no Reading")
+            } else {
+                MenuBarLabel(text: model.menuBarText, color: model.menuBarColor)
+            }
         }
         .menuBarExtraStyle(.window)
 
