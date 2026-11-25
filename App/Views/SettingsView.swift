@@ -590,7 +590,9 @@ private struct SyncSection: View {
             return "Turn on iCloud Drive in System Settings → Apple Account → iCloud to sync settings."
         }
         return "Alerts, Actions and display settings are shared by every Mac with this on. "
-            + "Passwords and tokens stay in each Mac's Keychain, so sign in once on each Mac."
+            + (KeychainSecretStore.syncAvailable
+                ? "Passwords and tokens sync through iCloud Keychain."
+                : "Passwords and tokens stay in each Mac's Keychain, so sign in once on each Mac.")
     }
 
     private func apply(_ on: Bool, useCloudCopy: Bool = false) {

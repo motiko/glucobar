@@ -3,7 +3,8 @@
 # the Homebrew cask so that `brew install motiko/tap/glucobar` picks it up.
 #
 # Signing: a "Developer ID Application" certificate is used if present, and the app is then
-# notarized. Otherwise the "Apple Development" certificate is used without notarization, and
+# notarized and embeds Config/GlucoBar_Developer_ID.provisionprofile, which lets it keep secrets
+# in iCloud Keychain. Otherwise the "Apple Development" certificate is used without notarization, and
 # the cask clears the quarantine flag after install so Gatekeeper doesn't block it.
 #
 # Usage:   scripts/release.sh <version>        e.g. scripts/release.sh 0.2.0
@@ -11,8 +12,9 @@
 # One-time setup on the release Mac (1 and 2 only for notarized releases):
 #   1. A "Developer ID Application" certificate in the login keychain
 #      (Xcode → Settings → Accounts → Manage Certificates → + → Developer ID Application).
-#   2. Notarization credentials stored in the keychain under the profile name below:
-#        xcrun notarytool store-credentials glucobar-notary --apple-id <id> --team-id <team>
+#   2. Notarization credentials stored in the keychain under the profile name below, from an
+#      App Store Connect API key (Users and Access → Integrations, role Developer):
+#        xcrun notarytool store-credentials glucobar-notary --key <AuthKey.p8> --key-id <id> --issuer <uuid>
 #   3. gh authenticated with push access to this repo and the tap repo.
 #
 # Environment overrides: NOTARY_PROFILE, TAP_REPO, DRY_RUN=1 (build + notarize, publish nothing).
@@ -46,7 +48,15 @@ fi
 TEAM=$(security find-certificate -c "$IDENTITY" -p | openssl x509 -noout -subject -nameopt multiline \
   | awk -F' = ' '/organizationalUnitName/ {print $2; exit}')
 [[ $TEAM =~ ^[A-Z0-9]{10}$ ]] || die "could not read the team ID from '$IDENTITY'"
+# Only Developer ID builds get the provisioning profile and the entitlements it allows.
+PROFILE_SETTINGS=(PROVISIONING_PROFILE_SPECIFIER= CODE_SIGN_ENTITLEMENTS=)
 if [[ $NOTARIZE == 1 ]]; then
+  PROFILE=Config/GlucoBar_Developer_ID.provisionprofile
+  PROFILE_UUID=$(security cms -D -i "$PROFILE" | plutil -extract UUID raw -o - -)
+  PROFILES_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+  mkdir -p "$PROFILES_DIR"
+  cp "$PROFILE" "$PROFILES_DIR/$PROFILE_UUID.provisionprofile"
+  PROFILE_SETTINGS=(PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" CODE_SIGN_ENTITLEMENTS=App/GlucoBar.entitlements)
   xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
     || die "notary profile '$NOTARY_PROFILE' missing (see setup above)"
 fi
@@ -70,7 +80,7 @@ rm -rf "$DERIVED"
 xcodebuild -project GlucoBar.xcodeproj -scheme GlucoBar -configuration Release \
   -derivedDataPath "$DERIVED" ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$IDENTITY" DEVELOPMENT_TEAM="$TEAM" \
-  ENABLE_HARDENED_RUNTIME=YES OTHER_CODE_SIGN_FLAGS="--timestamp" \
+  ENABLE_HARDENED_RUNTIME=YES OTHER_CODE_SIGN_FLAGS="--timestamp" "${PROFILE_SETTINGS[@]}" \
   build -quiet
 APP="$DERIVED/Build/Products/Release/GlucoBar.app"
 codesign --verify --strict --deep "$APP"

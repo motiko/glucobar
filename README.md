@@ -51,8 +51,10 @@ truth; the Settings window edits the same file. Secrets (LibreLinkUp password, b
 the Keychain and the file refers to them by name.
 
 **Sync between Macs:** Settings → General → *Sync settings via iCloud Drive* moves the file to
-`iCloud Drive/GlucoBar/config.json` and leaves a symlink at the usual path. Passwords and tokens are
-not synced (they stay in each Mac's Keychain), so sign in once on each Mac.
+`iCloud Drive/GlucoBar/config.json` and leaves a symlink at the usual path. Passwords and tokens sync
+separately through iCloud Keychain (release builds; turn on iCloud Keychain in System Settings →
+your name → iCloud → Passwords). Ad-hoc local builds can't use iCloud Keychain and keep secrets in
+the login keychain, so with those sign in once on each Mac.
 
 Glucose values are redacted in the system log unless `"debugLogging": true` (Settings → General →
 Debug logging). Watch the log with
@@ -78,4 +80,4 @@ Urgent Low is sent at priority 5 (can break through Do Not Disturb), Low/High at
 3. For a self-hosted server or a protected topic add `"server": "https://ntfy.example.com"` and
 `"tokenSecret": "ntfy.token"`, and store the access token in the Keychain:
 `security add-generic-password -s dev.moti.glucobar -a ntfy.token -w` (macOS asks once whether
-GlucoBar may read it; choose Always Allow).
+GlucoBar may read it; choose Always Allow). GlucoBar then moves it to iCloud Keychain.
