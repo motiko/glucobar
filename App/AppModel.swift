@@ -36,13 +36,20 @@ final class AppModel {
     /// After wake, give the Source this long before Signal Loss may fire.
     private let wakeGrace: TimeInterval = 120
 
+    /// config.json lives in iCloud Drive and is shared with the user's other Macs.
+    private(set) var syncEnabled = false
+    var settingsSync: SettingsSync { SettingsSync(localURL: configStore.url) }
+
     init() {
+        let sync = SettingsSync(localURL: configStore.url)
+        if sync.isEnabled { sync.ensureDownloaded() }
         do {
             config = try configStore.loadOrCreate()
         } catch {
             config = GlucoBarConfig()
             status = .error("Config unreadable: \(error.localizedDescription)")
         }
+        syncEnabled = sync.isEnabled
         hasCredentials = config.libreLinkUp.email != nil
             && (try? secrets.secret(named: config.libreLinkUp.passwordSecret)) != nil
         SoundPerformer.requestAuthorization()
@@ -52,8 +59,28 @@ final class AppModel {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.didWake() }
         }
-        configWatcher = ConfigWatcher(url: configStore.url) { [weak self] in self?.reloadConfig() }
+        watchConfig()
         restartPolling()
+    }
+
+    private func watchConfig() {
+        configWatcher = ConfigWatcher(url: configStore.fileURL) { [weak self] in self?.reloadConfig() }
+    }
+
+    /// Turns iCloud settings sync on or off. Returns an error message, or nil on success.
+    func setSettingsSync(_ on: Bool, useCloudCopy: Bool = false) -> String? {
+        saveConfig()
+        do {
+            if on { try settingsSync.enable(useCloudCopy: useCloudCopy) } else { try settingsSync.disable() }
+        } catch {
+            syncEnabled = settingsSync.isEnabled
+            return error.localizedDescription
+        }
+        syncEnabled = settingsSync.isEnabled
+        log.notice("Settings sync \(self.syncEnabled ? "on" : "off", privacy: .public)")
+        watchConfig()
+        reloadConfig()
+        return nil
     }
 
     // MARK: Polling

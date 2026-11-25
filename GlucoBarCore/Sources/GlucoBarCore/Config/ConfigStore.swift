@@ -17,20 +17,34 @@ public struct ConfigStore: Sendable {
         return base.appendingPathComponent("glucobar", isDirectory: true).appendingPathComponent("config.json")
     }
 
+    /// The file actually read and written: `url` with symlinks followed (e.g. into a synced
+    /// folder), even when the target doesn't exist yet. An atomic write to the symlink itself
+    /// would replace it with a plain file and silently stop the sync.
+    public var fileURL: URL {
+        var current = url
+        for _ in 0..<8 {
+            guard let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: current.path) else { break }
+            current = URL(fileURLWithPath: dest, relativeTo: current.deletingLastPathComponent()).standardizedFileURL
+        }
+        return current
+    }
+
     /// Returns the stored config, writing the defaults first if the file doesn't exist.
     public func loadOrCreate() throws -> GlucoBarConfig {
-        guard FileManager.default.fileExists(atPath: url.path) else {
+        let file = fileURL
+        guard FileManager.default.fileExists(atPath: file.path) else {
             let config = GlucoBarConfig()
             try save(config)
             return config
         }
-        return try JSONDecoder().decode(GlucoBarConfig.self, from: Data(contentsOf: url))
+        return try JSONDecoder().decode(GlucoBarConfig.self, from: Data(contentsOf: file))
     }
 
     public func save(_ config: GlucoBarConfig) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let file = fileURL
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try encoder.encode(config).write(to: url, options: .atomic)
+        try encoder.encode(config).write(to: file, options: .atomic)
     }
 }

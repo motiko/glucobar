@@ -50,6 +50,10 @@ Run with the `-demo` launch argument to see fake Readings without signing in.
 truth; the Settings window edits the same file. Secrets (LibreLinkUp password, bot tokens) live in
 the Keychain and the file refers to them by name.
 
+**Sync between Macs:** Settings → General → *Sync settings via iCloud Drive* moves the file to
+`iCloud Drive/GlucoBar/config.json` and leaves a symlink at the usual path. Passwords and tokens are
+not synced (they stay in each Mac's Keychain), so sign in once on each Mac.
+
 Glucose values are redacted in the system log unless `"debugLogging": true` (Settings → General →
 Debug logging). Watch the log with
 `/usr/bin/log stream --level info --predicate 'subsystem == "dev.moti.glucobar"'`.

@@ -532,6 +532,7 @@ private struct GeneralTab: View {
                     }
                 }
             }
+            SyncSection(model: model)
             Section {
                 Toggle("Debug logging", isOn: $model.config.debugLogging)
             } footer: {
@@ -541,16 +542,58 @@ private struct GeneralTab: View {
                 LabeledContent("Config file") {
                     HStack {
                         Button("Show in Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([model.configStore.url])
+                            NSWorkspace.shared.activateFileViewerSelecting([model.configStore.fileURL])
                         }
                         Button("Reload") { model.reloadConfig() }
                     }
                 }
             } footer: {
-                Text(model.configStore.url.path(percentEncoded: false))
+                Text(model.configStore.fileURL.path(percentEncoded: false))
                     .textSelection(.enabled)
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// "Sync settings via iCloud Drive", asking which settings win if another Mac already syncs.
+private struct SyncSection: View {
+    @Bindable var model: AppModel
+    @State private var askWhichSettings = false
+    @State private var error: String?
+
+    var body: some View {
+        Section {
+            Toggle("Sync settings via iCloud Drive", isOn: Binding(
+                get: { model.syncEnabled },
+                set: { on in
+                    if on && model.settingsSync.cloudCopyExists { askWhichSettings = true } else { apply(on) }
+                }))
+                .disabled(!model.settingsSync.isAvailable && !model.syncEnabled)
+            if let error {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
+        } footer: {
+            Text(footer)
+        }
+        .confirmationDialog("Another Mac already syncs GlucoBar settings.", isPresented: $askWhichSettings) {
+            Button("Use the Settings from iCloud") { apply(true, useCloudCopy: true) }
+            Button("Replace Them with This Mac's") { apply(true, useCloudCopy: false) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This Mac's current settings are kept as config.before-sync.json if you use the ones from iCloud.")
+        }
+    }
+
+    private var footer: String {
+        if !model.settingsSync.isAvailable && !model.syncEnabled {
+            return "Turn on iCloud Drive in System Settings → Apple Account → iCloud to sync settings."
+        }
+        return "Alerts, Actions and display settings are shared by every Mac with this on. "
+            + "Passwords and tokens stay in each Mac's Keychain, so sign in once on each Mac."
+    }
+
+    private func apply(_ on: Bool, useCloudCopy: Bool = false) {
+        error = model.setSettingsSync(on, useCloudCopy: useCloudCopy)
     }
 }

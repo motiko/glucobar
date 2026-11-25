@@ -169,6 +169,24 @@ private func reading(_ mg: Double, minutesAgo: Double = 0, trend: Trend? = .flat
         #expect(try store.loadOrCreate() == config)
     }
 
+    @Test func savesThroughSymlinkWithoutReplacingIt() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let synced = dir.appendingPathComponent("cloud/GlucoBar/config.json")
+        let link = dir.appendingPathComponent("local/config.json")
+        try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: synced) // dangling at first
+
+        let store = ConfigStore(url: link)
+        #expect(store.fileURL.path == synced.standardizedFileURL.path)
+        var config = try store.loadOrCreate() // creates the target, not a file at the link
+        config.debugLogging = true
+        try store.save(config)
+
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == synced.path)
+        #expect(try JSONDecoder().decode(GlucoBarConfig.self, from: Data(contentsOf: synced)).debugLogging)
+    }
+
     @Test func partialFileFallsBackToDefaults() throws {
         let json = #"{"display": {"showDelta": true}, "polling": {"intervalSeconds": 10}}"#
         let config = try JSONDecoder().decode(GlucoBarConfig.self, from: Data(json.utf8))
@@ -263,5 +281,64 @@ private func reading(_ mg: Double, minutesAgo: Double = 0, trend: Trend? = .flat
         #expect(LibreLinkUpSource.trend(fromArrow: 1) == .fallingFast)
         #expect(LibreLinkUpSource.trend(fromArrow: 5) == .risingFast)
         #expect(LibreLinkUpSource.trend(fromArrow: 0) == nil)
+    }
+}
+
+@Suite struct SettingsSyncTests {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    var local: URL { dir.appendingPathComponent("mac/.config/glucobar/config.json") }
+    var cloud: URL { dir.appendingPathComponent("iCloud") }
+
+    private func write(_ config: GlucoBarConfig, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(config).write(to: url)
+    }
+
+    private func read(_ url: URL) throws -> GlucoBarConfig {
+        try JSONDecoder().decode(GlucoBarConfig.self, from: Data(contentsOf: url))
+    }
+
+    @Test func firstMacMovesItsSettingsToTheCloudAndBack() throws {
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: cloud, withIntermediateDirectories: true)
+        var mine = GlucoBarConfig(); mine.polling.intervalSeconds = 120
+        try write(mine, to: local)
+        let sync = SettingsSync(localURL: local, cloudRoot: cloud)
+
+        #expect(!sync.cloudCopyExists)
+        try sync.enable(useCloudCopy: false)
+        #expect(sync.isEnabled)
+        #expect(try read(sync.cloudURL) == mine)
+        #expect(try ConfigStore(url: local).loadOrCreate() == mine) // read through the symlink
+
+        try sync.disable()
+        #expect(!sync.isEnabled)
+        #expect(try read(local) == mine) // plain file again
+        #expect(FileManager.default.fileExists(atPath: sync.cloudURL.path)) // other Macs keep theirs
+    }
+
+    @Test func secondMacCanAdoptTheCloudSettings() throws {
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let sync = SettingsSync(localURL: local, cloudRoot: cloud)
+        var shared = GlucoBarConfig(); shared.debugLogging = true
+        try write(shared, to: sync.cloudURL)
+        try write(GlucoBarConfig(), to: local)
+
+        #expect(sync.cloudCopyExists)
+        try sync.enable(useCloudCopy: true)
+        #expect(try ConfigStore(url: local).loadOrCreate() == shared)
+        let backup = local.deletingLastPathComponent().appendingPathComponent("config.before-sync.json")
+        #expect(try read(backup) == GlucoBarConfig())
+    }
+
+    @Test func secondMacCanOverwriteTheCloudSettings() throws {
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let sync = SettingsSync(localURL: local, cloudRoot: cloud)
+        try write(GlucoBarConfig(), to: sync.cloudURL)
+        var mine = GlucoBarConfig(); mine.display.showAge = true
+        try write(mine, to: local)
+
+        try sync.enable(useCloudCopy: false)
+        #expect(try read(sync.cloudURL) == mine)
     }
 }
