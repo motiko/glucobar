@@ -27,8 +27,8 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: GlucoBar
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "4"
+        CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "9"
         LSUIElement: true # menu bar only, no Dock icon
         LSApplicationCategoryType: public.app-category.medical
         NSHumanReadableCopyright: "MIT License"
