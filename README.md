@@ -54,7 +54,9 @@ the Keychain and the file refers to them by name.
 `iCloud Drive/GlucoBar/config.json` and leaves a symlink at the usual path. Passwords and tokens sync
 separately through iCloud Keychain (release builds; turn on iCloud Keychain in System Settings →
 your name → iCloud → Passwords). Ad-hoc local builds can't use iCloud Keychain and keep secrets in
-the login keychain, so with those sign in once on each Mac.
+the login keychain, so with those sign in once on each Mac. An editor that has config.json open
+follows the symlink, so macOS may ask once whether that editor may access iCloud Drive; allow it
+to keep editing the file there.
 
 Glucose values are redacted in the system log unless `"debugLogging": true` (Settings → General →
 Debug logging). Watch the log with
