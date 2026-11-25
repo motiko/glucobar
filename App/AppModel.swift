@@ -168,7 +168,13 @@ final class AppModel {
             for name in config.alerts[kind]?.actions ?? [] {
                 Task {
                     do { try await run(action: name, event) } catch {
-                        self.log.error("Action \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                        // Error text can contain the webhook URL (which may embed a token) or a server reply.
+                        let detail = String(describing: error)
+                        if self.config.debugLogging {
+                            self.log.error("Action \(name, privacy: .public) failed: \(detail, privacy: .public)")
+                        } else {
+                            self.log.error("Action \(name, privacy: .public) failed: \(detail, privacy: .private)")
+                        }
                     }
                 }
             }
