@@ -85,15 +85,33 @@ struct DropdownView: View {
     }
 
     private var snooze: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Firing: " + model.tracker.firing.map(\.displayName).joined(separator: ", "))
-                .font(.callout)
-            HStack {
-                Text("Snooze")
-                ForEach([15, 30, 60], id: \.self) { m in
-                    Button("\(m) min") { model.snooze(minutes: m) }
+        // Re-render every few seconds so the countdown stays current and an ended Snooze drops out.
+        TimelineView(.periodic(from: .now, by: 5)) { context in
+            let firing = model.tracker.firing
+            let ends = firing.compactMap { kind in model.tracker.snoozeEnd(for: kind, now: context.date).map { (kind, $0) } }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Firing: " + firing.map(\.displayName).joined(separator: ", "))
+                    .font(.callout)
+                ForEach(ends, id: \.0) { kind, end in
+                    Label {
+                        Text("\(kind.displayName) snoozed until \(end.formatted(date: .omitted, time: .shortened)) · \(Self.remaining(until: end, now: context.date)) left")
+                    } icon: {
+                        Image(systemName: "bell.slash")
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text(ends.isEmpty ? "Snooze" : "Snooze again")
+                    ForEach([15, 30, 60], id: \.self) { m in
+                        Button("\(m) min") { model.snooze(minutes: m) }
+                    }
                 }
             }
         }
+    }
+
+    /// Whole minutes left, rounded up so "0 min" never shows while still Snoozed.
+    private static func remaining(until end: Date, now: Date) -> String {
+        "\(max(1, Int(ceil(end.timeIntervalSince(now) / 60)))) min"
     }
 }

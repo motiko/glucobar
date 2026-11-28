@@ -54,6 +54,12 @@ public struct AlertTracker: Sendable {
         for kind in firing { snoozedUntil[kind] = until }
     }
 
+    /// When the Alert's Snooze ends, or nil if it isn't Snoozed at `now`.
+    public func snoozeEnd(for kind: AlertKind, now: Date) -> Date? {
+        guard let until = snoozedUntil[kind], now < until else { return nil }
+        return until
+    }
+
     public mutating func suppress(_ kind: AlertKind, until: Date) {
         suppressedUntil[kind] = until
     }

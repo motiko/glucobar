@@ -132,7 +132,10 @@ private func reading(_ mg: Double, minutesAgo: Double = 0, trend: Trend? = .flat
         var tr = AlertTracker()
         _ = tr.update(low, now: t0, settings: settings)
         tr.snoozeAll(until: t0 + 30 * 60)
+        #expect(tr.snoozeEnd(for: .low, now: t0 + 20 * 60) == t0 + 30 * 60)
+        #expect(tr.snoozeEnd(for: .high, now: t0 + 20 * 60) == nil)
         #expect(tr.update(low, now: t0 + 20 * 60, settings: settings) == [])
+        #expect(tr.snoozeEnd(for: .low, now: t0 + 30 * 60) == nil)
         #expect(tr.update(low, now: t0 + 31 * 60, settings: settings) == [.low])
     }
 
